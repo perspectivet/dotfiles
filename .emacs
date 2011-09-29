@@ -1,6 +1,8 @@
 
 (tool-bar-mode -1)
 (scroll-bar-mode -1)
+
+
 (isearch-mode 1)
 (menu-bar-mode -1)
 (iswitchb-mode 1)
@@ -15,6 +17,15 @@
 		)  load-path ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; org-mode stuff
+(require 'org-install)
+(add-to-list 'auto-mode-alist '("\\.org$" . org-mode))
+(define-key global-map "\C-cl" 'org-store-link)
+(define-key global-map "\C-ca" 'org-agenda)
+(setq org-log-done t)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; screen geometry
 (defun toggle-fullscreen ()
   (interactive)
   (x-send-client-message nil 0 nil "_NET_WM_STATE" 32
@@ -22,7 +33,8 @@
   (x-send-client-message nil 0 nil "_NET_WM_STATE" 32
 	    		 '(2 "_NET_WM_STATE_MAXIMIZED_HORZ" 0)))
 
-(toggle-fullscreen)
+(if (eq window-system 'x)
+    (toggle-fullscreen))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (require 'scala-mode-auto)
