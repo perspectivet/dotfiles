@@ -42,10 +42,8 @@
   "/home/aemon/src/misc/ensime"
   "The local development root.")
 
-(defvar ensime-test-env-classpath
-  (list (concat ensime-test-dev-home
-		"/project/boot/scala-2.8.1/lib/scala-library.jar"))
-  "Hard-code a classpath for testing purposes. Not great.")
+(defvar ensime-test-env-classpath '()
+  "Extra jars to include on testing classpath")
 
 (put 'ensime-test-assert-failed
      'error-conditions '(error ensime-test-assert-failed))
@@ -491,9 +489,9 @@
 
    (ensime-test
     "Test is source file predicate..."
-    (ensime-assert (ensime-is-source-file-p "dude.scala"))
-    (ensime-assert (ensime-is-source-file-p "dude.java"))
-    (ensime-assert (not (ensime-is-source-file-p "dude.javap"))))
+    (ensime-assert (ensime-source-file-p "dude.scala"))
+    (ensime-assert (ensime-source-file-p "dude.java"))
+    (ensime-assert (not (ensime-source-file-p "dude.javap"))))
 
    (ensime-test
     "Test relativization of paths..."
@@ -748,7 +746,6 @@
       (ensime-test-eat-mark "1")
       (forward-char)
       (ensime-save-buffer-no-hooks)
-      (save-buffer)
       (ensime-refactor-rename "DudeFace")))
 
     ((:refactor-at-confirm-buffer val)
@@ -793,7 +790,11 @@
      (ensime-test-with-proj
       (proj src-files)
       (ensime-test-eat-mark "1")
-      (ensime-save-buffer-no-hooks)
+      (save-buffer)))
+
+    ((:full-typecheck-finished val)
+     (ensime-test-with-proj
+      (proj src-files)
       (ensime-show-uses-of-symbol-at-point)))
 
     ((:references-buffer-shown val)
@@ -836,7 +837,7 @@
     ((:full-typecheck-finished val)
      (ensime-test-with-proj
       (proj src-files)
-      (let* ((notes (plist-get val :notes)))
+      (let* ((notes (ensime-all-notes)))
 	(ensime-assert-equal (length notes) 0))
       (ensime-test-cleanup proj)
       ))
@@ -870,7 +871,7 @@
     ((:full-typecheck-finished val)
      (ensime-test-with-proj
       (proj src-files)
-      (let* ((notes (plist-get val :notes)))
+      (let* ((notes (ensime-all-notes)))
 	(ensime-assert-equal (length notes) 0))
       (kill-buffer nil)
       (delete-file (car src-files))
@@ -878,10 +879,10 @@
       (ensime-rpc-async-typecheck-all #'identity)
       ))
 
-    ((:return-value val)
+    ((:full-typecheck-finished val)
      (ensime-test-with-proj
       (proj src-files)
-      (let* ((notes (plist-get (cadr val) :notes)))
+      (let* ((notes (ensime-all-notes)))
 	(ensime-assert (> (length notes) 0)))
       (ensime-test-cleanup proj)
       ))
@@ -986,7 +987,7 @@
     ((:full-typecheck-finished val)
      (ensime-test-with-proj
       (proj src-files)
-      (let* ((notes (plist-get val :notes)))
+      (let* ((notes (ensime-all-notes)))
 	(ensime-assert-equal (length notes) 0)
 	(find-file (car src-files))
 	(goto-char (point-min))
@@ -1000,7 +1001,7 @@
      (ensime-test-with-proj
       (proj src-files)
       (let ((proj (ensime-test-var-get :proj))
-	    (notes (plist-get val :notes)))
+	    (notes (ensime-all-notes)))
 	(ensime-assert (> (length notes) 0))
 	(ensime-test-cleanup proj)
 	)))
@@ -1186,7 +1187,7 @@
     ((:full-typecheck-finished val)
      (ensime-test-with-proj
       (proj src-files)
-      (let* ((notes (plist-get val :notes)))
+      (let* ((notes (ensime-all-notes)))
 	(ensime-assert-equal (length notes) 0))
       (ensime-test-cleanup proj t)
       ))

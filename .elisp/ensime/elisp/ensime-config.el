@@ -258,10 +258,9 @@
    (file-exists-p (concat root "/build/ivy.xml"))))
 
 (defun ensime-config-is-sbt-test (root)
-  (and
-   (file-exists-p (concat root "/project/build.properties" ))
-   (file-exists-p (concat root "/src/main/" ))))
-
+  (or (file-exists-p (concat root "/build.sbt" ))
+      (file-exists-p (concat root "/project/boot" ))
+      (file-exists-p (concat root "/project/build.properties" ))))
 
 (defun ensime-config-find-file (file-name)
   "Search up the directory tree starting at file-name
