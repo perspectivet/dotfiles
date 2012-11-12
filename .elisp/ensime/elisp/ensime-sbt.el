@@ -41,6 +41,7 @@
 (eval-when-compile (require 'cl))
 (require 'compile)
 (require 'comint)
+(require 'ensime-comint-utils)
 
 (defgroup ensime-sbt nil
   "Support for sbt build REPL."
@@ -55,6 +56,11 @@
 (defcustom ensime-sbt-build-buffer-name-base "*ensime-sbt*"
   "Buffer name for sbt"
   :type 'string
+  :group 'ensime-sbt)
+
+(defcustom ensime-sbt-compile-on-save t
+  "Compile on save?"
+  :type 'boolean
   :group 'ensime-sbt)
 
 (defun ensime-sbt-build-buffer-name ()
@@ -74,55 +80,69 @@
 (defun ensime-sbt ()
   "Setup and launch sbt."
   (interactive)
-  (let ((root-path (ensime-sbt-find-path-to-project)))
+  (ensime-with-conn-interactive
+   conn
+   (let ((root-path (ensime-sbt-find-path-to-project))
+	 (buf (get-buffer-create (ensime-sbt-build-buffer-name))))
 
-    (switch-to-buffer-other-window
-     (get-buffer-create (ensime-sbt-build-buffer-name)))
+     (switch-to-buffer-other-window buf)
 
-    (add-hook 'ensime-source-buffer-saved-hook 'ensime-sbt-maybe-auto-compile)
+     (add-hook 'ensime-source-buffer-saved-hook 'ensime-sbt-maybe-auto-compile)
 
-    (add-hook 'kill-buffer-hook
-	      '(lambda ()
-		 (remove-hook
-		  'ensime-source-buffer-saved-hook
-		  'ensime-sbt-maybe-auto-compile)) nil t)
+     (add-hook 'kill-buffer-hook
+	       '(lambda ()
+		  (remove-hook
+		   'ensime-source-buffer-saved-hook
+		   'ensime-sbt-maybe-auto-compile)) nil t)
 
-    (comint-mode)
+     (comint-mode)
 
-    (set (make-local-variable 'compilation-error-regexp-alist)
-	 '(("^\\[error\\] \\([_.a-zA-Z0-9/-]+[.]scala\\):\\([0-9]+\\):"
-	    1 2 nil 2 nil)))
-    (set (make-local-variable 'compilation-mode-font-lock-keywords)
-	 '(("^\\[error\\] Error running compile:"
-	    (0 compilation-error-face))
-	   ("^\\[warn\\][^\n]*"
-	    (0 compilation-warning-face))
-	   ("^\\(\\[info\\]\\)\\([^\n]*\\)"
-	    (0 compilation-info-face)
-	    (1 compilation-line-face))
-	   ("^\\[success\\][^\n]*"
-	    (0 compilation-info-face))))
-    (set (make-local-variable 'comint-process-echoes) nil)
-    (set (make-local-variable 'compilation-auto-jump-to-first-error) t)
-    (set (make-local-variable 'comint-scroll-to-bottom-on-output) t)
-    (set (make-local-variable 'comint-prompt-read-only) t)
-    (set (make-local-variable 'comint-output-filter-functions)
-	 '(ansi-color-process-output comint-postoutput-scroll-to-bottom))
+     (setq ensime-buffer-connection conn)
 
-    (if ensime-sbt-comint-ansi-support
-	(set (make-local-variable 'ansi-color-for-comint-mode) t)
-      (set (make-local-variable 'ansi-color-for-comint-mode) 'filter))
+     (set (make-local-variable 'compilation-error-regexp-alist)
+	  '(("^\\[error\\] \\(.+\\):\\([0-9]+\\): "
+	     1 2 nil 2 1)))
+     (set (make-local-variable 'compilation-mode-font-lock-keywords)
+	  '(("^\\[error\\] Error running compile:"
+	     (0 compilation-error-face))
+	    ("^\\[warn\\][^\n]*"
+	     (0 compilation-warning-face))
+	    ("^\\(\\[info\\]\\)\\([^\n]*\\)"
+	     (0 compilation-info-face)
+	     (1 compilation-line-face))
+	    ("^\\[success\\][^\n]*"
+	     (0 compilation-info-face))))
+     (set (make-local-variable 'comint-process-echoes) nil)
+     (set (make-local-variable 'compilation-auto-jump-to-first-error) t)
+     (set (make-local-variable 'comint-scroll-to-bottom-on-output) t)
+     ;; `scala>' is for the repl launched from stb
+     (set (make-local-variable 'comint-prompt-regexp)
+          (let ((project-name (plist-get (ensime-config) :project-name)))
+            (concat "^\\(>\\|scala>\\|\\[" project-name "\\] \\$\\) ")))
+     (set (make-local-variable 'comint-use-prompt-regexp) t)
+     (set (make-local-variable 'comint-prompt-read-only) t)
+     (set (make-local-variable 'comint-output-filter-functions)
+	  '(ansi-color-process-output comint-postoutput-scroll-to-bottom))
 
-    (compilation-shell-minor-mode t)
-    (cd root-path)
-    (ensime-assert-executable-on-path ensime-sbt-program-name)
-    (comint-exec (current-buffer)
-		 ensime-sbt-program-name
-		 ensime-sbt-program-name
-		 nil nil)
+     (if ensime-sbt-comint-ansi-support
+	 (set (make-local-variable 'ansi-color-for-comint-mode) t)
+       (set (make-local-variable 'ansi-color-for-comint-mode) 'filter))
 
-    (let ((proc (get-buffer-process (current-buffer))))
-      (ensime-set-query-on-exit-flag proc))))
+     (compilation-shell-minor-mode t)
+     (cd root-path)
+     (ensime-assert-executable-on-path ensime-sbt-program-name)
+     (comint-exec (current-buffer)
+		  ensime-sbt-program-name
+		  ensime-sbt-program-name
+		  nil nil)
+
+     (let ((proc (get-buffer-process (current-buffer))))
+       (ensime-set-query-on-exit-flag proc))
+
+     (define-key (current-local-map) "\t" 'ensime-sbt-complete)
+
+     (current-buffer)
+     )))
 
 (defun ensime-sbt-switch ()
   "Switch to the sbt shell (create if necessary) if or if already there, back.
@@ -135,6 +155,17 @@
           (switch-to-buffer-other-window sbt-buf)
 	(ensime-sbt))))
   (goto-char (point-max)))
+
+(defun ensime-sbt-get-or-start-buffer ()
+  "Return buffer of active sbt process, or create and return."
+  (let ((buf (get-buffer (ensime-sbt-build-buffer-name))))
+    (if (and buf (ensime-sbt-process-live-p buf))
+	buf
+      (ensime-sbt))))
+
+(defun ensime-sbt-get-buffer ()
+  "Return buffer of active sbt process."
+  (get-buffer (ensime-sbt-build-buffer-name)))
 
 (defun ensime-sbt-process-live-p (buffer-name)
   "Check if the process associated with the buffer is living."
@@ -153,23 +184,52 @@
   (interactive)
   (when (and
 	 (ensime-connected-p)
-	 (plist-get (ensime-config
-		     (ensime-connection))
-		    :sbt-compile-on-save))
+	 ensime-sbt-compile-on-save)
     (ensime-sbt-action "compile")))
+
+(defun ensime-sbt-complete ()
+  "Complete input at point"
+  (interactive)
+  (let* ((proc (get-buffer-process (ensime-sbt-build-buffer-name)))
+         (input (buffer-substring (comint-line-beginning-position) (point)))
+         (prompt (buffer-substring (line-beginning-position)
+                                   (comint-line-beginning-position)))
+         (cand-regexp (if (string-match "scala>" prompt)
+                          "[\f\t\n\r\v]+"
+                        "\s\s\\|[\f\t\n\r\v]+")))
+    (if (string-to-list input)
+        (ensime-comint-complete proc input cand-regexp "{invalid input}")
+      (message "At least one character is needed !"))))
 
 (defun ensime-sbt-action (action)
   "Run an sbt action. Where action is a string in the set of valid
    SBT actions names, e.g. 'compile', 'run'"
+  (when-let (buf (ensime-sbt-get-buffer))
+    (with-current-buffer buf (goto-char (point-max)))
+    (comint-send-string buf (concat action "\n"))))
+
+(defun ensime-sbt-do-compile ()
   (interactive)
-  (ensime-sbt-clear)
-  (comint-send-string
-   (get-buffer (ensime-sbt-build-buffer-name))
-   (concat action "\n")))
+  (ensime-sbt-switch)
+  (ensime-sbt-action "compile"))
+
+(defun ensime-sbt-do-clean ()
+  (interactive)
+  (ensime-sbt-switch)
+  (ensime-sbt-action "clean"))
+
+(defun ensime-sbt-do-package ()
+  (interactive)
+  (ensime-sbt-switch)
+  (ensime-sbt-action "package"))
+
 
 (defun ensime-sbt-project-dir-p (path)
-  "Does a project/build.properties exists in the given path."
-  (file-exists-p (concat path "/project/build.properties")))
+  "Is path an sbt project?"
+  (or (not (null (directory-files path nil "\\.sbt$")))
+      (file-exists-p (concat path "/project/Build.scala" ))
+      (file-exists-p (concat path "/project/boot" ))
+      (file-exists-p (concat path "/project/build.properties" ))))
 
 (defun ensime-sbt-at-root (path)
   "Determine if the given path is root."
